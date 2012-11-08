@@ -12,6 +12,7 @@
       list: null,                               // [string]   optional name of list belonging to username
       favorites: false,                         // [boolean]  display the user's favorites instead of his tweets
       query: null,                              // [string]   optional search query (see also: http://search.twitter.com/operators)
+      use_cache: true,                          // [boolean]  use simple HTML5 caching
       avatar_size: null,                        // [integer]  height and width of avatar if displayed (48px max)
       count: 3,                                 // [integer]  how many tweets to display?
       fetch: null,                              // [integer]  how many tweets to fetch via the API (set this higher than 'count' if using the 'filter' option)
@@ -145,7 +146,7 @@
     function build_api_url() {
       var proto = ('https:' == document.location.protocol ? 'https:' : 'http:');
       var count = (s.fetch === null) ? s.count : s.fetch;
-      var common_params = '&callback=?';
+      var common_params = '&include_entities=1&callback=?';
       if (s.list) {
         return proto+"//"+s.twitter_api_url+"/1/"+s.username[0]+"/lists/"+s.list+"/statuses.json?page="+s.page+"&per_page="+count+common_params;
       } else if (s.favorites) {
@@ -227,22 +228,35 @@
       $(widget).empty().append(list);
       if (s.intro_text) list.before('<p class="tweet_intro">'+s.intro_text+'</p>');
       if (s.outro_text) list.after('<p class="tweet_outro">'+s.outro_text+'</p>');
-
+	  
       $(widget).trigger("loaded").trigger((tweets.length === 0 ? "empty" : "full"));
       if (s.refresh_interval) {
         window.setTimeout(function() { $(widget).trigger("tweet:load"); }, 1000 * s.refresh_interval);
       }
     }
-
+	
+	function supports_html5_storage() {
+	  try { return 'localStorage' in window && window['localStorage'] !== null; } catch (e) {return false; }
+	}
+	
     function load(widget) {
       var loading = $('<p class="loading">'+s.loading_text+'</p>');
       if (s.loading_text) $(widget).not(":has(.tweet_list)").empty().append(loading);
-      $.getJSON(build_api_url(), function(data){
-        var tweets = $.map(data.results || data, extract_template_data);
-        tweets = $.grep(tweets, s.filter).sort(s.comparator).slice(0, s.count);
-        $(widget).trigger("tweet:retrieved", [tweets]);
-      });
+	  if(supports_html5_storage() && s.use_cache && window.localStorage["tweetData"]!=null){ //use the cached data
+		  //need an asyc dummy-call
+		  $.get('',function(){extractData(JSON.parse(window.localStorage["tweetData"]), widget);});
+	  }else{ //fetch new data
+		  $.getJSON(build_api_url(), function(data){extractData(data, widget)});
+	  }
     }
+	
+	function extractData(data, widget){
+		var d = new Date(); var refreshCache = (d.getMinutes()%2 == 0); //refresh every odd minute
+		if(supports_html5_storage() && s.use_cache  && refreshCache) window.localStorage["tweetData"] = JSON.stringify(data); //refresh cache
+		var tweets = $.map(data.results || data, extract_template_data);
+		tweets = $.grep(tweets, s.filter).sort(s.comparator).slice(0, s.count);
+		$(widget).trigger("tweet:retrieved", [tweets]);
+	}
 
     return this.each(function(i, widget){
       if(s.username && typeof(s.username) == "string"){
